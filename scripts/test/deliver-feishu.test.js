@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import { deliverDigest } from '../deliver.js';
+import { deliverDigest, formatDeliveryError } from '../deliver.js';
 
 function stdinFrom(text) {
   return Readable.from([Buffer.from(text)]);
@@ -92,4 +92,34 @@ test('deliverDigest uses --message argument as digest input', async () => {
 
   assert.deepEqual(result, { status: 'ok', method: 'stdout' });
   assert.deepEqual(logs, ['digest from argv']);
+});
+
+test('formatDeliveryError includes delivery method in error JSON', () => {
+  assert.deepEqual(
+    formatDeliveryError(new Error('publish failed'), 'feishu_doc'),
+    { status: 'error', method: 'feishu_doc', message: 'publish failed' }
+  );
+});
+
+test('deliverDigest logs method when feishu doc delivery fails', async () => {
+  const error = new Error('publish failed');
+  const { result, logs } = await captureConsole(async () => {
+    try {
+      await deliverDigest({
+        argv: ['--message', 'digest from argv'],
+        configOverride: { delivery: { method: 'feishu_doc' } },
+        publishFeishuDocImpl: async () => {
+          throw error;
+        }
+      });
+      return { thrown: undefined };
+    } catch (err) {
+      return { thrown: err };
+    }
+  });
+
+  assert.equal(result.thrown, error);
+  assert.deepEqual(logs, [
+    JSON.stringify({ status: 'error', method: 'feishu_doc', message: 'publish failed' })
+  ]);
 });

@@ -25,6 +25,7 @@ import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { pathToFileURL } from 'url';
 import { config as loadEnv } from 'dotenv';
 import { publishFeishuDoc } from './lib/feishu-docs.js';
 
@@ -179,6 +180,14 @@ async function sendConfiguredEmail(text, delivery, env, fetchImpl) {
   return result;
 }
 
+export function formatDeliveryError(err, method) {
+  return {
+    status: 'error',
+    method,
+    message: err.message
+  };
+}
+
 // -- Main --------------------------------------------------------------------
 
 export async function deliverDigest({
@@ -206,36 +215,37 @@ export async function deliverDigest({
     return result;
   }
 
-  switch (delivery.method) {
-    case 'telegram':
-      return sendConfiguredTelegram(digestText, delivery, env, fetchImpl);
+  try {
+    switch (delivery.method) {
+      case 'telegram':
+        return await sendConfiguredTelegram(digestText, delivery, env, fetchImpl);
 
-    case 'email':
-      return sendConfiguredEmail(digestText, delivery, env, fetchImpl);
+      case 'email':
+        return await sendConfiguredEmail(digestText, delivery, env, fetchImpl);
 
-    case 'feishu_doc': {
-      const result = await publishFeishuDocImpl(digestText, config, {
-        env,
-        fetch: fetchImpl
-      });
-      console.log(JSON.stringify(result, null, 2));
-      return result;
+      case 'feishu_doc': {
+        const result = await publishFeishuDocImpl(digestText, config, {
+          env,
+          fetch: fetchImpl
+        });
+        console.log(JSON.stringify(result, null, 2));
+        return result;
+      }
+
+      case 'stdout':
+      default:
+        // Just print to terminal — the agent or OpenClaw handles delivery
+        console.log(digestText);
+        return { status: 'ok', method: 'stdout' };
     }
-
-    case 'stdout':
-    default:
-      // Just print to terminal — the agent or OpenClaw handles delivery
-      console.log(digestText);
-      return { status: 'ok', method: 'stdout' };
+  } catch (err) {
+    console.log(JSON.stringify(formatDeliveryError(err, delivery.method)));
+    throw err;
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   deliverDigest().catch(err => {
-    console.log(JSON.stringify({
-      status: 'error',
-      message: err.message
-    }));
     process.exit(1);
   });
 }
