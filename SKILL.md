@@ -176,9 +176,18 @@ cat > ~/.follow-builders/config.json << 'CFGEOF'
   "deliveryTime": "<HH:MM>",
   "weeklyDay": "<day of week, only if weekly>",
   "delivery": {
-    "method": "<stdout, telegram, or email>",
+    "method": "<stdout, telegram, email, or feishu_doc>",
     "chatId": "<telegram chat ID, only if telegram>",
-    "email": "<email address, only if email>"
+    "email": "<email address, only if email>",
+    "feishu": {
+      "appId": "<feishu self-built app id, only if feishu_doc>",
+      "appSecretEnv": "FEISHU_APP_SECRET",
+      "folderToken": "<target feishu folder token>",
+      "titleTemplate": "AI Builders Digest - {{date}}",
+      "timezone": "<IANA timezone for document date>",
+      "onExisting": "update",
+      "includeMetadata": true
+    }
   },
   "onboardingComplete": true
 }
@@ -403,6 +412,15 @@ echo '<your digest text>' > /tmp/fb-digest.txt
 cd ${CLAUDE_SKILL_DIR}/scripts && node deliver.js --file /tmp/fb-digest.txt 2>/dev/null
 ```
 If delivery fails, show the digest in the terminal as fallback.
+
+**If "feishu_doc":**
+```bash
+echo '<your digest text>' > /tmp/fb-digest.txt
+cd ${CLAUDE_SKILL_DIR}/scripts && node deliver.js --file /tmp/fb-digest.txt 2>/dev/null
+```
+This writes the digest into the configured Feishu cloud-docs folder as one document per day.
+Same-day reruns update the existing document instead of creating duplicates.
+If delivery succeeds, show the returned document URL. If it fails, show the JSON error and the digest text as fallback.
 
 **If "stdout" (default):**
 Just output the digest directly.

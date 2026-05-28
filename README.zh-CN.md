@@ -25,10 +25,12 @@
 Agent 会询问你：
 - 推送频率（每日或每周）和时间
 - 语言偏好
-- 推送方式（Telegram、邮件或直接在聊天中显示）
+- 推送方式（Telegram、邮件、飞书文档或直接在聊天中显示）
 
 不需要任何 API key——所有内容由中心化服务统一抓取。
 设置完成后，你的第一期摘要会立即推送。
+
+也支持飞书文档投递。配置飞书自建应用和目标文件夹 token 后，每次运行都会在指定飞书云文档文件夹中创建或更新当天的一篇日报文档。
 
 ## 修改设置
 
@@ -113,6 +115,7 @@ cd ~/.claude/skills/follow-builders/scripts && npm install
 
 - 不发送任何 API key——所有内容由中心化服务获取
 - 如果你使用 Telegram/邮件推送，相关 key 仅存储在本地 `~/.follow-builders/.env`
+- 如果你使用飞书文档投递，`FEISHU_APP_SECRET` 仅保存在本地 `~/.follow-builders/.env`，而 App ID 与文件夹 token 保存在 `~/.follow-builders/config.json`
 - Skill 只读取公开内容（公开的博客文章、YouTube 视频和 X 帖子）
 - 你的配置、偏好和阅读记录都保留在你自己的设备上
 

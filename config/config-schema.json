@@ -42,9 +42,9 @@
       "properties": {
         "method": {
           "type": "string",
-          "enum": ["stdout", "telegram", "email"],
+          "enum": ["stdout", "telegram", "email", "feishu_doc"],
           "default": "stdout",
-          "description": "Delivery method: stdout (terminal/agent), telegram (bot message), email (via Resend)"
+          "description": "Delivery method: stdout (terminal/agent), telegram (bot message), email (via Resend), feishu_doc (daily Feishu document)"
         },
         "chatId": {
           "type": "string",
@@ -53,6 +53,46 @@
         "email": {
           "type": "string",
           "description": "Email address to send digest to (only for email method)"
+        },
+        "feishu": {
+          "type": "object",
+          "description": "Feishu document delivery configuration (only for feishu_doc method)",
+          "properties": {
+            "appId": {
+              "type": "string",
+              "description": "Feishu self-built app ID"
+            },
+            "appSecretEnv": {
+              "type": "string",
+              "default": "FEISHU_APP_SECRET",
+              "description": "Environment variable name containing the Feishu app secret"
+            },
+            "folderToken": {
+              "type": "string",
+              "description": "Target Feishu cloud-docs folder token"
+            },
+            "titleTemplate": {
+              "type": "string",
+              "default": "AI Builders Digest - {{date}}",
+              "description": "Daily document title template. {{date}} expands to YYYY-MM-DD"
+            },
+            "timezone": {
+              "type": "string",
+              "default": "Asia/Shanghai",
+              "description": "Timezone used to calculate the daily document date"
+            },
+            "onExisting": {
+              "type": "string",
+              "enum": ["update"],
+              "default": "update",
+              "description": "How to handle an existing document with today's title"
+            },
+            "includeMetadata": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether to prepend generated-at metadata to the document"
+            }
+          }
         }
       }
     },

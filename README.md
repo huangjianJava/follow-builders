@@ -29,10 +29,14 @@ WhatsApp, etc.) with:
 The agent will ask you:
 - How often you want your digest (daily or weekly) and what time
 - What language you prefer
-- How you want it delivered (Telegram, email, or in-chat)
+- How you want it delivered (Telegram, email, Feishu Docs, or in-chat)
 
 No API keys needed — all content is fetched centrally.
 Your first digest arrives immediately after setup.
+
+Feishu Docs delivery is also supported. With a Feishu self-built app and a target
+folder token, each run creates or updates one daily document in your chosen
+Feishu cloud-docs folder.
 
 ## Changing Settings
 
@@ -122,10 +126,10 @@ See [examples/sample-digest.md](examples/sample-digest.md) for what the output l
 
 - No API keys are sent anywhere — all content is fetched centrally
 - If you use Telegram/email delivery, those keys are stored locally in `~/.follow-builders/.env`
+- If you use Feishu Docs delivery, `FEISHU_APP_SECRET` is stored locally in `~/.follow-builders/.env`, while the app ID and folder token live in `~/.follow-builders/config.json`
 - The skill only reads public content (public blog posts, public YouTube videos, public X posts)
 - Your configuration, preferences, and reading history stay on your machine
 
 ## License
 
 MIT
-
