@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import { deliverDigest, formatDeliveryError } from '../deliver.js';
+import { deliverDigest, formatDeliveryError, isCliEntrypoint } from '../deliver.js';
 
 function stdinFrom(text) {
   return Readable.from([Buffer.from(text)]);
@@ -122,4 +122,30 @@ test('deliverDigest logs method when feishu doc delivery fails', async () => {
   assert.deepEqual(logs, [
     JSON.stringify({ status: 'error', method: 'feishu_doc', message: 'publish failed' })
   ]);
+});
+
+test('isCliEntrypoint is false when argv path is missing', () => {
+  assert.equal(isCliEntrypoint(undefined, import.meta.url), false);
+});
+
+test('deliverDigest logs method when file input cannot be read', async () => {
+  const { result, logs } = await captureConsole(async () => {
+    try {
+      await deliverDigest({
+        argv: ['--file', '/path/that/does/not/exist.md'],
+        stdin: stdinFrom('ignored stdin'),
+        configOverride: { delivery: { method: 'stdout' } }
+      });
+      return { thrown: undefined };
+    } catch (err) {
+      return { thrown: err };
+    }
+  });
+
+  assert.match(result.thrown.message, /ENOENT/);
+  assert.deepEqual(JSON.parse(logs[0]), {
+    status: 'error',
+    method: 'stdout',
+    message: result.thrown.message
+  });
 });

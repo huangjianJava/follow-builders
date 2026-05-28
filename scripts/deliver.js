@@ -188,6 +188,10 @@ export function formatDeliveryError(err, method) {
   };
 }
 
+export function isCliEntrypoint(argvPath, metaUrl) {
+  return Boolean(argvPath && metaUrl === pathToFileURL(argvPath).href);
+}
+
 // -- Main --------------------------------------------------------------------
 
 export async function deliverDigest({
@@ -202,20 +206,22 @@ export async function deliverDigest({
   loadEnv({ path: ENV_PATH });
 
   let config = configOverride || {};
-  if (!configOverride && existsSync(CONFIG_PATH)) {
-    config = JSON.parse(await readFile(CONFIG_PATH, 'utf-8'));
-  }
-
-  const delivery = config.delivery || { method: 'stdout' };
-  const digestText = await getDigestText(argv, stdin);
-
-  if (!digestText || digestText.trim().length === 0) {
-    const result = { status: 'skipped', reason: 'Empty digest text' };
-    console.log(JSON.stringify(result));
-    return result;
-  }
+  let delivery = config.delivery || { method: 'stdout' };
 
   try {
+    if (!configOverride && existsSync(CONFIG_PATH)) {
+      config = JSON.parse(await readFile(CONFIG_PATH, 'utf-8'));
+      delivery = config.delivery || { method: 'stdout' };
+    }
+
+    const digestText = await getDigestText(argv, stdin);
+
+    if (!digestText || digestText.trim().length === 0) {
+      const result = { status: 'skipped', reason: 'Empty digest text' };
+      console.log(JSON.stringify(result));
+      return result;
+    }
+
     switch (delivery.method) {
       case 'telegram':
         return await sendConfiguredTelegram(digestText, delivery, env, fetchImpl);
@@ -239,12 +245,12 @@ export async function deliverDigest({
         return { status: 'ok', method: 'stdout' };
     }
   } catch (err) {
-    console.log(JSON.stringify(formatDeliveryError(err, delivery.method)));
+    console.log(JSON.stringify(formatDeliveryError(err, delivery.method || 'unknown')));
     throw err;
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isCliEntrypoint(process.argv[1], import.meta.url)) {
   deliverDigest().catch(err => {
     process.exit(1);
   });
