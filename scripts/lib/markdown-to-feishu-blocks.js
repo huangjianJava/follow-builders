@@ -73,3 +73,70 @@ export function digestBlocksToPlainText(blocks) {
     return block.text || '';
   }).join('\n\n');
 }
+
+export function digestBlocksToFeishuBlocks(blocks) {
+  return blocks.map(block => {
+    if (block.type === 'heading') {
+      const level = Math.min(Math.max(block.level || 1, 1), 3);
+      const key = `heading${level}`;
+      return {
+        block_type: level === 1 ? 3 : level === 2 ? 4 : 5,
+        [key]: { elements: textElements(block.text || '', block.marks || []) }
+      };
+    }
+
+    if (block.type === 'bullet') {
+      return {
+        block_type: 12,
+        bullet: { elements: textElements(block.text || '', block.marks || []) }
+      };
+    }
+
+    if (block.type === 'ordered') {
+      return {
+        block_type: 13,
+        ordered: { elements: textElements(block.text || '', block.marks || []) }
+      };
+    }
+
+    if (block.type === 'divider') {
+      return { block_type: 22, divider: {} };
+    }
+
+    const marks = block.link
+      ? [{ start: 0, end: block.text.length, url: block.link }]
+      : block.marks || [];
+
+    return {
+      block_type: 2,
+      text: { elements: textElements(block.text || '', marks) }
+    };
+  });
+}
+
+function textElements(text, marks) {
+  if (!marks || marks.length === 0) {
+    return [{ text_run: { content: text } }];
+  }
+
+  const elements = [];
+  let cursor = 0;
+  for (const mark of marks) {
+    if (mark.start > cursor) {
+      elements.push({ text_run: { content: text.slice(cursor, mark.start) } });
+    }
+    elements.push({
+      text_run: {
+        content: text.slice(mark.start, mark.end),
+        text_element_style: { link: { url: mark.url } }
+      }
+    });
+    cursor = mark.end;
+  }
+
+  if (cursor < text.length) {
+    elements.push({ text_run: { content: text.slice(cursor) } });
+  }
+
+  return elements;
+}

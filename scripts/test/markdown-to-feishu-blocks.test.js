@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   markdownToDigestBlocks,
-  digestBlocksToPlainText
+  digestBlocksToPlainText,
+  digestBlocksToFeishuBlocks
 } from '../lib/markdown-to-feishu-blocks.js';
 
 test('markdownToDigestBlocks maps headings paragraphs lists urls and dividers', () => {
@@ -56,4 +57,42 @@ test('digestBlocksToPlainText preserves readable content', () => {
   ];
 
   assert.equal(digestBlocksToPlainText(blocks), '# Title\n\n- Point\n\n---\n\nTail');
+});
+
+test('digestBlocksToFeishuBlocks maps digest blocks to Feishu block payloads', () => {
+  const blocks = [
+    { type: 'heading', level: 2, text: 'Tweets' },
+    { type: 'paragraph', text: 'Read post', marks: [{ start: 5, end: 9, url: 'https://example.com' }] },
+    { type: 'bullet', text: 'One point' },
+    { type: 'ordered', text: 'First point' },
+    { type: 'divider' }
+  ];
+
+  assert.deepEqual(digestBlocksToFeishuBlocks(blocks), [
+    {
+      block_type: 4,
+      heading2: { elements: [{ text_run: { content: 'Tweets' } }] }
+    },
+    {
+      block_type: 2,
+      text: {
+        elements: [
+          { text_run: { content: 'Read ' } },
+          { text_run: { content: 'post', text_element_style: { link: { url: 'https://example.com' } } } }
+        ]
+      }
+    },
+    {
+      block_type: 12,
+      bullet: { elements: [{ text_run: { content: 'One point' } }] }
+    },
+    {
+      block_type: 13,
+      ordered: { elements: [{ text_run: { content: 'First point' } }] }
+    },
+    {
+      block_type: 22,
+      divider: {}
+    }
+  ]);
 });
