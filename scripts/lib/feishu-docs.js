@@ -64,7 +64,7 @@ export async function publishFeishuDoc(digestText, config, options = {}) {
   } else {
     const document = await createDocument(fetchImpl, token, feishu.folderToken, title);
     documentId = document.document_id;
-    url = document.url;
+    url = document.url || await findDocumentUrl(fetchImpl, token, feishu.folderToken, documentId, title);
     action = 'created';
   }
 
@@ -155,11 +155,19 @@ async function createDocument(fetchImpl, token, folderToken, title) {
     throw new Error('Feishu API response missing document.document_id');
   }
 
-  if (!document.url) {
+  return document;
+}
+
+async function findDocumentUrl(fetchImpl, token, folderToken, documentId, title) {
+  const files = await listFolderFiles(fetchImpl, token, folderToken);
+  const match = files.find(file => file.token === documentId)
+    || files.find(file => file.name === title && file.type === 'docx');
+
+  if (!match?.url) {
     throw new Error('Feishu API response missing document.url');
   }
 
-  return document;
+  return match.url;
 }
 
 async function getRootBlock(fetchImpl, token, documentId) {
