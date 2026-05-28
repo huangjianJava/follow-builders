@@ -86,6 +86,7 @@ test('publishFeishuDoc creates a document when daily title is missing', async ()
   });
 
   assert.equal(result.status, 'ok');
+  assert.equal(result.method, 'feishu_doc');
   assert.equal(result.action, 'created');
   assert.equal(result.title, 'AI Builders Digest - 2026-05-28');
   assert.equal(result.url, 'https://feishu/doc_1');
@@ -186,10 +187,40 @@ test('publishFeishuDoc updates newest existing duplicate and warns', async () =>
   });
 
   assert.equal(result.action, 'updated');
+  assert.equal(result.method, 'feishu_doc');
   assert.equal(result.url, 'https://feishu/new');
   assert.match(result.warnings[0], /Multiple documents/);
   assert.equal(calls[3].options.method, 'DELETE');
   assert.equal(JSON.parse(calls[3].options.body).end_index, 1);
+});
+
+test('publishFeishuDoc selects newest duplicate by created_time when modified_time is missing', async () => {
+  const fetch = createMockFetch([
+    { body: { code: 0, tenant_access_token: 'tenant_token', expire: 7200 } },
+    {
+      body: {
+        code: 0,
+        data: {
+          files: [
+            { name: 'AI Builders Digest - 2026-05-28', type: 'docx', token: 'old_created', url: 'https://feishu/old-created', created_time: '100' },
+            { name: 'AI Builders Digest - 2026-05-28', type: 'docx', token: 'new_created', url: 'https://feishu/new-created', created_time: '200' }
+          ]
+        }
+      }
+    },
+    { body: { code: 0, data: { items: [{ block_id: 'new_created', children: [] }] } } },
+    { body: { code: 0, data: { children: [] } } }
+  ]);
+
+  const result = await publishFeishuDoc('Digest body', baseConfig, {
+    env: { FEISHU_APP_SECRET: 'secret' },
+    fetch,
+    now: new Date('2026-05-27T16:30:00.000Z')
+  });
+
+  assert.equal(result.action, 'updated');
+  assert.equal(result.url, 'https://feishu/new-created');
+  assert.equal(result.documentId, 'new_created');
 });
 
 test('publishFeishuDoc follows folder pagination before creating', async () => {
@@ -252,6 +283,7 @@ test('publishFeishuDoc falls back to plain text when structured write fails', as
   });
 
   assert.equal(result.fallback, 'plain_text');
+  assert.equal(result.method, 'feishu_doc');
   assert.match(result.warnings[0], /Structured write failed/);
   const fallbackBody = JSON.parse(calls[5].options.body);
   assert.equal(fallbackBody.children[0].block_type, 2);

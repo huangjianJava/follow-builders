@@ -89,6 +89,7 @@ export async function publishFeishuDoc(digestText, config, options = {}) {
 
   return {
     status: 'ok',
+    method: 'feishu_doc',
     action,
     title,
     url,
@@ -234,10 +235,10 @@ function findExistingDocument(files, title, warnings) {
   if (matches.length === 0) return null;
 
   if (matches.length > 1) {
-    warnings.push(`Multiple documents named "${title}" found; updating newest by modified_time.`);
+    warnings.push(`Multiple documents named "${title}" found; updating newest by modified_time or created_time.`);
   }
 
-  const newest = matches.sort((a, b) => Number(b.modified_time || 0) - Number(a.modified_time || 0))[0];
+  const newest = matches.sort((a, b) => fileTimestamp(b) - fileTimestamp(a))[0];
 
   if (!newest.token) {
     throw new Error(`Feishu folder file "${title}" is missing token`);
@@ -248,6 +249,10 @@ function findExistingDocument(files, title, warnings) {
   }
 
   return newest;
+}
+
+function fileTimestamp(file) {
+  return Number(file.modified_time || file.created_time || 0);
 }
 
 function withMetadata(digestText, includeMetadata, now, timezone) {
