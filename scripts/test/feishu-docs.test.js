@@ -11,6 +11,7 @@ function createMockFetch(responses, calls = []) {
       ok: next.ok ?? true,
       status: next.status ?? 200,
       async json() {
+        if (next.jsonError) throw new Error(next.jsonError);
         return next.body;
       }
     };
@@ -93,6 +94,42 @@ test('publishFeishuDoc creates a document when daily title is missing', async ()
   assert.equal(calls.some(call => call.options.method === 'DELETE'), false);
 });
 
+test('publishFeishuDoc uses feishu timezone before global timezone', async () => {
+  const calls = [];
+  const fetch = createMockFetch([
+    { body: { code: 0, tenant_access_token: 'tenant_token', expire: 7200 } },
+    { body: { code: 0, data: { files: [] } } },
+    { body: { code: 0, data: { document: { document_id: 'doc_tz', url: 'https://feishu/doc_tz' } } } },
+    { body: { code: 0, data: { items: [{ block_id: 'doc_tz', children: [] }] } } },
+    { body: { code: 0, data: { children: [] } } }
+  ], calls);
+  const config = {
+    ...baseConfig,
+    timezone: 'Asia/Shanghai',
+    delivery: {
+      ...baseConfig.delivery,
+      feishu: {
+        ...baseConfig.delivery.feishu,
+        timezone: 'America/Los_Angeles',
+        includeMetadata: true
+      }
+    }
+  };
+
+  const result = await publishFeishuDoc('Digest body', config, {
+    env: { FEISHU_APP_SECRET: 'secret' },
+    fetch,
+    now: new Date('2026-05-28T01:30:00.000Z')
+  });
+
+  assert.equal(result.title, 'AI Builders Digest - 2026-05-27');
+  const createBody = JSON.parse(calls[4].options.body);
+  assert.equal(
+    createBody.children[0].text.elements[0].text_run.content,
+    'Generated at: 2026-05-27 18:30 America/Los_Angeles'
+  );
+});
+
 test('publishFeishuDoc updates newest existing duplicate and warns', async () => {
   const calls = [];
   const fetch = createMockFetch([
@@ -126,6 +163,48 @@ test('publishFeishuDoc updates newest existing duplicate and warns', async () =>
   assert.equal(JSON.parse(calls[3].options.body).end_index, 1);
 });
 
+test('publishFeishuDoc follows folder pagination before creating', async () => {
+  const calls = [];
+  const fetch = createMockFetch([
+    { body: { code: 0, tenant_access_token: 'tenant_token', expire: 7200 } },
+    {
+      body: {
+        code: 0,
+        data: {
+          files: [{ name: 'Other', type: 'docx', token: 'other', url: 'https://feishu/other' }],
+          has_more: true,
+          next_page_token: 'page_2'
+        }
+      }
+    },
+    {
+      body: {
+        code: 0,
+        data: {
+          items: [
+            { name: 'AI Builders Digest - 2026-05-28', type: 'docx', token: 'doc_2', url: 'https://feishu/doc_2' }
+          ],
+          has_more: false
+        }
+      }
+    },
+    { body: { code: 0, data: { items: [{ block_id: 'doc_2', children: [] }] } } },
+    { body: { code: 0, data: { children: [] } } }
+  ], calls);
+
+  const result = await publishFeishuDoc('Digest body', baseConfig, {
+    env: { FEISHU_APP_SECRET: 'secret' },
+    fetch,
+    now: new Date('2026-05-27T16:30:00.000Z')
+  });
+
+  assert.equal(result.action, 'updated');
+  assert.equal(result.url, 'https://feishu/doc_2');
+  assert.match(calls[1].url, /page_size=200/);
+  assert.match(calls[2].url, /page_token=page_2/);
+  assert.equal(calls.some(call => call.url === 'https://open.feishu.cn/open-apis/docx/v1/documents'), false);
+});
+
 test('publishFeishuDoc falls back to plain text when structured write fails', async () => {
   const calls = [];
   const fetch = createMockFetch([
@@ -148,6 +227,53 @@ test('publishFeishuDoc falls back to plain text when structured write fails', as
   const fallbackBody = JSON.parse(calls[5].options.body);
   assert.equal(fallbackBody.children[0].block_type, 2);
   assert.equal(fallbackBody.children[0].text.elements[0].text_run.content, '# Digest');
+});
+
+test('publishFeishuDoc rejects token responses without tenant_access_token', async () => {
+  const fetch = createMockFetch([
+    { body: { code: 0, expire: 7200 } }
+  ]);
+
+  await assert.rejects(
+    () => publishFeishuDoc('Digest', baseConfig, {
+      env: { FEISHU_APP_SECRET: 'secret' },
+      fetch,
+      now: new Date('2026-05-27T16:30:00.000Z')
+    }),
+    /missing tenant_access_token/
+  );
+});
+
+test('publishFeishuDoc rejects created documents without document_id', async () => {
+  const fetch = createMockFetch([
+    { body: { code: 0, tenant_access_token: 'tenant_token', expire: 7200 } },
+    { body: { code: 0, data: { files: [] } } },
+    { body: { code: 0, data: { document: { url: 'https://feishu/doc_missing' } } } }
+  ]);
+
+  await assert.rejects(
+    () => publishFeishuDoc('Digest', baseConfig, {
+      env: { FEISHU_APP_SECRET: 'secret' },
+      fetch,
+      now: new Date('2026-05-27T16:30:00.000Z')
+    }),
+    /missing document.document_id/
+  );
+});
+
+test('publishFeishuDoc reports invalid JSON responses with request context', async () => {
+  const fetch = createMockFetch([
+    { ok: false, status: 502, jsonError: 'Unexpected token <' }
+  ]);
+
+  await assert.rejects(
+    () => publishFeishuDoc('Digest', baseConfig, {
+      env: { FEISHU_APP_SECRET: 'secret' },
+      fetch,
+      now: new Date('2026-05-27T16:30:00.000Z')
+    }),
+    /Feishu API invalid JSON POST \/auth\/v3\/tenant_access_token\/internal: HTTP 502/
+  );
 });
 
 test('publishFeishuDoc throws Feishu API errors', async () => {

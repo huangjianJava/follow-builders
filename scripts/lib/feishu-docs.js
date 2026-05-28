@@ -40,7 +40,7 @@ export async function publishFeishuDoc(digestText, config, options = {}) {
   const fetchImpl = options.fetch || globalThis.fetch;
   const now = options.now || new Date();
   const feishu = validateFeishuConfig(config, env);
-  const timezone = config?.timezone;
+  const timezone = feishu.timezone || config?.timezone;
   const title = expandTitleTemplate(feishu.titleTemplate, now, timezone);
   const warnings = [];
 
@@ -106,19 +106,36 @@ async function getTenantAccessToken(fetchImpl, feishu) {
     }
   });
 
+  if (!payload.tenant_access_token) {
+    throw new Error('Feishu API response missing tenant_access_token');
+  }
+
   return payload.tenant_access_token;
 }
 
 async function listFolderFiles(fetchImpl, token, folderToken) {
-  const query = new URLSearchParams({
-    folder_token: folderToken,
-    page_size: '50'
-  });
-  const payload = await feishuRequest(fetchImpl, `/drive/v1/files?${query}`, {
-    method: 'GET',
-    token
-  });
-  return payload.data?.files || [];
+  const files = [];
+  let pageToken;
+
+  do {
+    const query = new URLSearchParams({
+      folder_token: folderToken,
+      page_size: '200'
+    });
+    if (pageToken) query.set('page_token', pageToken);
+
+    const payload = await feishuRequest(fetchImpl, `/drive/v1/files?${query}`, {
+      method: 'GET',
+      token
+    });
+    const data = payload.data || {};
+    files.push(...(data.files || data.items || payload.files || payload.items || []));
+    pageToken = data.next_page_token || payload.next_page_token;
+
+    if (!(data.has_more ?? payload.has_more)) break;
+  } while (pageToken);
+
+  return files;
 }
 
 async function createDocument(fetchImpl, token, folderToken, title) {
@@ -130,7 +147,17 @@ async function createDocument(fetchImpl, token, folderToken, title) {
       title
     }
   });
-  return payload.data?.document || {};
+  const document = payload.data?.document || {};
+
+  if (!document.document_id) {
+    throw new Error('Feishu API response missing document.document_id');
+  }
+
+  if (!document.url) {
+    throw new Error('Feishu API response missing document.url');
+  }
+
+  return document;
 }
 
 async function getRootBlock(fetchImpl, token, documentId) {
@@ -182,7 +209,14 @@ async function feishuRequest(fetchImpl, path, options = {}) {
     headers,
     ...(options.body ? { body: JSON.stringify(options.body) } : {})
   });
-  const payload = await response.json();
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    throw new Error(
+      `Feishu API invalid JSON ${options.method || 'GET'} ${path}: HTTP ${response.status} ${error.message}`
+    );
+  }
 
   if (!response.ok || payload?.code !== 0) {
     const message = payload?.msg || payload?.message || 'unknown error';
@@ -202,7 +236,17 @@ function findExistingDocument(files, title, warnings) {
     warnings.push(`Multiple documents named "${title}" found; updating newest by modified_time.`);
   }
 
-  return matches.sort((a, b) => Number(b.modified_time || 0) - Number(a.modified_time || 0))[0];
+  const newest = matches.sort((a, b) => Number(b.modified_time || 0) - Number(a.modified_time || 0))[0];
+
+  if (!newest.token) {
+    throw new Error(`Feishu folder file "${title}" is missing token`);
+  }
+
+  if (!newest.url) {
+    throw new Error(`Feishu folder file "${title}" is missing url`);
+  }
+
+  return newest;
 }
 
 function withMetadata(digestText, includeMetadata, now, timezone) {
