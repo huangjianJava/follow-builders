@@ -24,6 +24,10 @@ export function validateFeishuConfig(config, env = process.env) {
     throw new Error('delivery.feishu.folderToken is required');
   }
 
+  if (feishu.onExisting && feishu.onExisting !== 'update') {
+    throw new Error('delivery.feishu.onExisting must be "update" when provided');
+  }
+
   return {
     ...feishu,
     appSecretEnv: secretEnv,
@@ -67,17 +71,17 @@ export async function publishFeishuDoc(digestText, config, options = {}) {
   const blocks = markdownToDigestBlocks(content);
   const rootBlock = await getRootBlock(fetchImpl, token, documentId);
 
-  if (rootBlock.children?.length > 0) {
-    await deleteRootChildren(fetchImpl, token, documentId, rootBlock.block_id);
+  if (rootBlock.childCount > 0) {
+    await deleteRootChildren(fetchImpl, token, documentId, rootBlock.blockId, rootBlock.childCount);
   }
 
   let fallback;
   try {
-    await createChildren(fetchImpl, token, documentId, rootBlock.block_id, digestBlocksToFeishuBlocks(blocks));
+    await createChildren(fetchImpl, token, documentId, rootBlock.blockId, digestBlocksToFeishuBlocks(blocks));
   } catch (error) {
     fallback = 'plain_text';
     warnings.push(`Structured write failed; fell back to plain text: ${error.message}`);
-    await createChildren(fetchImpl, token, documentId, rootBlock.block_id, [
+    await createChildren(fetchImpl, token, documentId, rootBlock.blockId, [
       plainTextParagraph(digestBlocksToPlainText(blocks))
     ]);
   }
@@ -134,10 +138,14 @@ async function getRootBlock(fetchImpl, token, documentId) {
     method: 'GET',
     token
   });
-  return payload.data?.items?.[0] || { block_id: documentId, children: [] };
+  const root = payload.data?.items?.[0] || { block_id: documentId, children: [] };
+  return {
+    blockId: root.block_id || documentId,
+    childCount: root.children?.length || 0
+  };
 }
 
-async function deleteRootChildren(fetchImpl, token, documentId, rootBlockId) {
+async function deleteRootChildren(fetchImpl, token, documentId, rootBlockId, childCount) {
   await feishuRequest(
     fetchImpl,
     `/docx/v1/documents/${documentId}/blocks/${rootBlockId}/children/batch_delete`,
@@ -146,7 +154,7 @@ async function deleteRootChildren(fetchImpl, token, documentId, rootBlockId) {
       token,
       body: {
         start_index: 0,
-        end_index: 500
+        end_index: childCount
       }
     }
   );

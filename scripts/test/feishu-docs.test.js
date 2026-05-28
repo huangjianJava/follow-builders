@@ -50,6 +50,24 @@ test('validateFeishuConfig requires app id secret and folder token', () => {
   );
 });
 
+test('validateFeishuConfig rejects unsupported onExisting values', () => {
+  assert.throws(
+    () => validateFeishuConfig(
+      {
+        delivery: {
+          feishu: {
+            appId: 'cli',
+            folderToken: 'fld',
+            onExisting: 'create'
+          }
+        }
+      },
+      { FEISHU_APP_SECRET: 'secret' }
+    ),
+    /delivery.feishu.onExisting must be "update"/
+  );
+});
+
 test('publishFeishuDoc creates a document when daily title is missing', async () => {
   const calls = [];
   const fetch = createMockFetch([
@@ -72,6 +90,7 @@ test('publishFeishuDoc creates a document when daily title is missing', async ()
   assert.equal(result.url, 'https://feishu/doc_1');
   assert.equal(calls[2].url, 'https://open.feishu.cn/open-apis/docx/v1/documents');
   assert.equal(calls[1].options.headers.Authorization, 'Bearer tenant_token');
+  assert.equal(calls.some(call => call.options.method === 'DELETE'), false);
 });
 
 test('publishFeishuDoc updates newest existing duplicate and warns', async () => {
@@ -104,6 +123,7 @@ test('publishFeishuDoc updates newest existing duplicate and warns', async () =>
   assert.equal(result.url, 'https://feishu/new');
   assert.match(result.warnings[0], /Multiple documents/);
   assert.equal(calls[3].options.method, 'DELETE');
+  assert.equal(JSON.parse(calls[3].options.body).end_index, 1);
 });
 
 test('publishFeishuDoc falls back to plain text when structured write fails', async () => {
