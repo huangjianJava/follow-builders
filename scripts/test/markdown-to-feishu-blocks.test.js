@@ -96,3 +96,75 @@ test('digestBlocksToFeishuBlocks maps digest blocks to Feishu block payloads', (
     }
   ]);
 });
+
+test('digestBlocksToFeishuBlocks preserves multiple marked segments and trailing text', () => {
+  const blocks = [
+    {
+      type: 'paragraph',
+      text: 'Read one and two today',
+      marks: [
+        { start: 5, end: 8, url: 'https://example.com/one' },
+        { start: 13, end: 16, url: 'https://example.com/two' }
+      ]
+    }
+  ];
+
+  assert.deepEqual(digestBlocksToFeishuBlocks(blocks), [
+    {
+      block_type: 2,
+      text: {
+        elements: [
+          { text_run: { content: 'Read ' } },
+          { text_run: { content: 'one', text_element_style: { link: { url: 'https://example.com/one' } } } },
+          { text_run: { content: ' and ' } },
+          { text_run: { content: 'two', text_element_style: { link: { url: 'https://example.com/two' } } } },
+          { text_run: { content: ' today' } }
+        ]
+      }
+    }
+  ]);
+});
+
+test('digestBlocksToFeishuBlocks maps paragraph link as whole text link', () => {
+  const blocks = [
+    { type: 'paragraph', text: 'https://example.com/item', link: 'https://example.com/item' }
+  ];
+
+  assert.deepEqual(digestBlocksToFeishuBlocks(blocks), [
+    {
+      block_type: 2,
+      text: {
+        elements: [
+          {
+            text_run: {
+              content: 'https://example.com/item',
+              text_element_style: { link: { url: 'https://example.com/item' } }
+            }
+          }
+        ]
+      }
+    }
+  ]);
+});
+
+test('digestBlocksToFeishuBlocks handles empty paragraph text with link', () => {
+  assert.doesNotThrow(() => {
+    assert.deepEqual(digestBlocksToFeishuBlocks([
+      { type: 'paragraph', link: 'https://example.com/empty' }
+    ]), [
+      {
+        block_type: 2,
+        text: {
+          elements: [
+            {
+              text_run: {
+                content: '',
+                text_element_style: { link: { url: 'https://example.com/empty' } }
+              }
+            }
+          ]
+        }
+      }
+    ]);
+  });
+});

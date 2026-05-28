@@ -103,13 +103,14 @@ export function digestBlocksToFeishuBlocks(blocks) {
       return { block_type: 22, divider: {} };
     }
 
+    const text = block.text || '';
     const marks = block.link
-      ? [{ start: 0, end: block.text.length, url: block.link }]
+      ? [{ start: 0, end: text.length, url: block.link }]
       : block.marks || [];
 
     return {
       block_type: 2,
-      text: { elements: textElements(block.text || '', marks) }
+      text: { elements: textElements(text, marks) }
     };
   });
 }
