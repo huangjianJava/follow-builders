@@ -30,6 +30,7 @@ export function validateFeishuConfig(config, env = process.env) {
 
   return {
     ...feishu,
+    includeMetadata: feishu.includeMetadata !== false,
     appSecretEnv: secretEnv,
     appSecret: env[secretEnv]
   };

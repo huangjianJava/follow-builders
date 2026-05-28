@@ -130,6 +130,35 @@ test('publishFeishuDoc uses feishu timezone before global timezone', async () =>
   );
 });
 
+test('publishFeishuDoc includes metadata when includeMetadata is omitted', async () => {
+  const calls = [];
+  const fetch = createMockFetch([
+    { body: { code: 0, tenant_access_token: 'tenant_token', expire: 7200 } },
+    { body: { code: 0, data: { files: [] } } },
+    { body: { code: 0, data: { document: { document_id: 'doc_meta', url: 'https://feishu/doc_meta' } } } },
+    { body: { code: 0, data: { items: [{ block_id: 'doc_meta', children: [] }] } } },
+    { body: { code: 0, data: { children: [] } } }
+  ], calls);
+  const { includeMetadata, ...feishuWithoutMetadata } = baseConfig.delivery.feishu;
+  const config = {
+    ...baseConfig,
+    delivery: {
+      ...baseConfig.delivery,
+      feishu: feishuWithoutMetadata
+    }
+  };
+
+  await publishFeishuDoc('Digest body', config, {
+    env: { FEISHU_APP_SECRET: 'secret' },
+    fetch,
+    now: new Date('2026-05-27T16:30:00.000Z')
+  });
+
+  const createBody = JSON.parse(calls[4].options.body);
+  assert.match(createBody.children[0].text.elements[0].text_run.content, /^Generated at:/);
+  assert.equal(createBody.children[1].text.elements[0].text_run.content, 'Source: follow-builders');
+});
+
 test('publishFeishuDoc updates newest existing duplicate and warns', async () => {
   const calls = [];
   const fetch = createMockFetch([
