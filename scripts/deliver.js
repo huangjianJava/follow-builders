@@ -17,6 +17,7 @@
 // Delivery methods:
 //   - "telegram": sends via Telegram Bot API (needs TELEGRAM_BOT_TOKEN + chat ID)
 //   - "email": sends via Resend API (needs RESEND_API_KEY + email address)
+//   - "feishu_doc": publishes to Feishu Docs
 //   - "stdout" (default): just prints to terminal
 // ============================================================================
 
@@ -25,6 +26,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { config as loadEnv } from 'dotenv';
+import { publishFeishuDoc } from './lib/feishu-docs.js';
 
 // -- Constants ---------------------------------------------------------------
 
@@ -35,25 +37,23 @@ const ENV_PATH = join(USER_DIR, '.env');
 // -- Read input --------------------------------------------------------------
 
 // The digest text can come from stdin, --message flag, or --file flag
-async function getDigestText() {
-  const args = process.argv.slice(2);
-
+async function getDigestText(argv = process.argv.slice(2), stdin = process.stdin) {
   // Check --message flag
-  const msgIdx = args.indexOf('--message');
-  if (msgIdx !== -1 && args[msgIdx + 1]) {
-    return args[msgIdx + 1];
+  const msgIdx = argv.indexOf('--message');
+  if (msgIdx !== -1 && argv[msgIdx + 1]) {
+    return argv[msgIdx + 1];
   }
 
   // Check --file flag
-  const fileIdx = args.indexOf('--file');
-  if (fileIdx !== -1 && args[fileIdx + 1]) {
-    return await readFile(args[fileIdx + 1], 'utf-8');
+  const fileIdx = argv.indexOf('--file');
+  if (fileIdx !== -1 && argv[fileIdx + 1]) {
+    return await readFile(argv[fileIdx + 1], 'utf-8');
   }
 
   // Read from stdin
   const chunks = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk);
+  for await (const chunk of stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return Buffer.concat(chunks).toString('utf-8');
 }
@@ -63,7 +63,7 @@ async function getDigestText() {
 // Sends the digest via Telegram Bot API.
 // The user creates a bot via @BotFather and provides the token.
 // The chat ID is obtained when the user sends their first message to the bot.
-async function sendTelegram(text, botToken, chatId) {
+async function sendTelegram(text, botToken, chatId, fetchImpl = fetch) {
   // Telegram has a 4096 character limit per message.
   // If the digest is longer, we split it into chunks.
   const MAX_LEN = 4000;
@@ -82,7 +82,7 @@ async function sendTelegram(text, botToken, chatId) {
   }
 
   for (const chunk of chunks) {
-    const res = await fetch(
+    const res = await fetchImpl(
       `https://api.telegram.org/bot${botToken}/sendMessage`,
       {
         method: 'POST',
@@ -100,7 +100,7 @@ async function sendTelegram(text, botToken, chatId) {
       const err = await res.json();
       // If Markdown parsing fails, retry without parse_mode
       if (err.description && err.description.includes("can't parse")) {
-        await fetch(
+        await fetchImpl(
           `https://api.telegram.org/bot${botToken}/sendMessage`,
           {
             method: 'POST',
@@ -126,8 +126,8 @@ async function sendTelegram(text, botToken, chatId) {
 
 // Sends the digest via Resend's email API.
 // The user provides their own Resend API key and email address.
-async function sendEmail(text, apiKey, toEmail) {
-  const res = await fetch('https://api.resend.com/emails', {
+async function sendEmail(text, apiKey, toEmail, fetchImpl = fetch) {
+  const res = await fetchImpl('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -149,69 +149,93 @@ async function sendEmail(text, apiKey, toEmail) {
   }
 }
 
+async function sendConfiguredTelegram(text, delivery, env, fetchImpl) {
+  const botToken = env.TELEGRAM_BOT_TOKEN;
+  const chatId = delivery.chatId;
+  if (!botToken) throw new Error('TELEGRAM_BOT_TOKEN not found in .env');
+  if (!chatId) throw new Error('delivery.chatId not found in config.json');
+  await sendTelegram(text, botToken, chatId, fetchImpl);
+  const result = {
+    status: 'ok',
+    method: 'telegram',
+    message: 'Digest sent to Telegram'
+  };
+  console.log(JSON.stringify(result));
+  return result;
+}
+
+async function sendConfiguredEmail(text, delivery, env, fetchImpl) {
+  const apiKey = env.RESEND_API_KEY;
+  const toEmail = delivery.email;
+  if (!apiKey) throw new Error('RESEND_API_KEY not found in .env');
+  if (!toEmail) throw new Error('delivery.email not found in config.json');
+  await sendEmail(text, apiKey, toEmail, fetchImpl);
+  const result = {
+    status: 'ok',
+    method: 'email',
+    message: `Digest sent to ${toEmail}`
+  };
+  console.log(JSON.stringify(result));
+  return result;
+}
+
 // -- Main --------------------------------------------------------------------
 
-async function main() {
+export async function deliverDigest({
+  argv = process.argv.slice(2),
+  stdin = process.stdin,
+  env = process.env,
+  fetchImpl = fetch,
+  configOverride,
+  publishFeishuDocImpl = publishFeishuDoc
+} = {}) {
   // Load env and config
   loadEnv({ path: ENV_PATH });
 
-  let config = {};
-  if (existsSync(CONFIG_PATH)) {
+  let config = configOverride || {};
+  if (!configOverride && existsSync(CONFIG_PATH)) {
     config = JSON.parse(await readFile(CONFIG_PATH, 'utf-8'));
   }
 
   const delivery = config.delivery || { method: 'stdout' };
-  const digestText = await getDigestText();
+  const digestText = await getDigestText(argv, stdin);
 
   if (!digestText || digestText.trim().length === 0) {
-    console.log(JSON.stringify({ status: 'skipped', reason: 'Empty digest text' }));
-    return;
+    const result = { status: 'skipped', reason: 'Empty digest text' };
+    console.log(JSON.stringify(result));
+    return result;
   }
 
-  try {
-    switch (delivery.method) {
-      case 'telegram': {
-        const botToken = process.env.TELEGRAM_BOT_TOKEN;
-        const chatId = delivery.chatId;
-        if (!botToken) throw new Error('TELEGRAM_BOT_TOKEN not found in .env');
-        if (!chatId) throw new Error('delivery.chatId not found in config.json');
-        await sendTelegram(digestText, botToken, chatId);
-        console.log(JSON.stringify({
-          status: 'ok',
-          method: 'telegram',
-          message: 'Digest sent to Telegram'
-        }));
-        break;
-      }
+  switch (delivery.method) {
+    case 'telegram':
+      return sendConfiguredTelegram(digestText, delivery, env, fetchImpl);
 
-      case 'email': {
-        const apiKey = process.env.RESEND_API_KEY;
-        const toEmail = delivery.email;
-        if (!apiKey) throw new Error('RESEND_API_KEY not found in .env');
-        if (!toEmail) throw new Error('delivery.email not found in config.json');
-        await sendEmail(digestText, apiKey, toEmail);
-        console.log(JSON.stringify({
-          status: 'ok',
-          method: 'email',
-          message: `Digest sent to ${toEmail}`
-        }));
-        break;
-      }
+    case 'email':
+      return sendConfiguredEmail(digestText, delivery, env, fetchImpl);
 
-      case 'stdout':
-      default:
-        // Just print to terminal — the agent or OpenClaw handles delivery
-        console.log(digestText);
-        break;
+    case 'feishu_doc': {
+      const result = await publishFeishuDocImpl(digestText, config, {
+        env,
+        fetch: fetchImpl
+      });
+      console.log(JSON.stringify(result, null, 2));
+      return result;
     }
-  } catch (err) {
-    console.log(JSON.stringify({
-      status: 'error',
-      method: delivery.method,
-      message: err.message
-    }));
-    process.exit(1);
+
+    case 'stdout':
+    default:
+      // Just print to terminal — the agent or OpenClaw handles delivery
+      console.log(digestText);
+      return { status: 'ok', method: 'stdout' };
   }
 }
 
-main();
+if (import.meta.url === `file://${process.argv[1]}`) {
+  deliverDigest().catch(err => {
+    console.log(JSON.stringify({
+      status: 'error',
+      message: err.message
+    }));
+    process.exit(1);
+  });
+}
