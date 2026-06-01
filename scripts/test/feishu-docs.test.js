@@ -265,6 +265,31 @@ test('publishFeishuDoc follows folder pagination before creating', async () => {
   assert.equal(calls.some(call => call.url === 'https://open.feishu.cn/open-apis/docx/v1/documents'), false);
 });
 
+test('publishFeishuDoc writes structured blocks in batches', async () => {
+  const calls = [];
+  const fetch = createMockFetch([
+    { body: { code: 0, tenant_access_token: 'tenant_token', expire: 7200 } },
+    { body: { code: 0, data: { files: [] } } },
+    { body: { code: 0, data: { document: { document_id: 'doc_many', url: 'https://feishu/doc_many' } } } },
+    { body: { code: 0, data: { items: [{ block_id: 'doc_many', children: [] }] } } },
+    { body: { code: 0, data: { children: [] } } },
+    { body: { code: 0, data: { children: [] } } }
+  ], calls);
+  const digest = Array.from({ length: 45 }, (_, index) => `Paragraph ${index + 1}`).join('\n\n');
+
+  const result = await publishFeishuDoc(digest, baseConfig, {
+    env: { FEISHU_APP_SECRET: 'secret' },
+    fetch,
+    now: new Date('2026-05-27T16:30:00.000Z')
+  });
+
+  assert.equal(result.fallback, undefined);
+  const writeCalls = calls.filter(call => call.url.includes('/children') && call.options.method === 'POST');
+  assert.equal(writeCalls.length, 2);
+  assert.equal(JSON.parse(writeCalls[0].options.body).children.length, 40);
+  assert.equal(JSON.parse(writeCalls[1].options.body).children.length, 5);
+});
+
 test('publishFeishuDoc falls back to plain text when structured write fails', async () => {
   const calls = [];
   const fetch = createMockFetch([

@@ -78,7 +78,13 @@ export async function publishFeishuDoc(digestText, config, options = {}) {
 
   let fallback;
   try {
-    await createChildren(fetchImpl, token, documentId, rootBlock.blockId, digestBlocksToFeishuBlocks(blocks));
+    await createChildrenInBatches(
+      fetchImpl,
+      token,
+      documentId,
+      rootBlock.blockId,
+      digestBlocksToFeishuBlocks(blocks)
+    );
   } catch (error) {
     fallback = 'plain_text';
     warnings.push(`Structured write failed; fell back to plain text: ${error.message}`);
@@ -207,6 +213,19 @@ async function createChildren(fetchImpl, token, documentId, parentBlockId, child
       body: { children }
     }
   );
+}
+
+async function createChildrenInBatches(fetchImpl, token, documentId, parentBlockId, children) {
+  const batchSize = 40;
+
+  for (let start = 0; start < children.length; start += batchSize) {
+    const batch = children.slice(start, start + batchSize);
+    try {
+      await createChildren(fetchImpl, token, documentId, parentBlockId, batch);
+    } catch (error) {
+      throw new Error(`blocks ${start + 1}-${start + batch.length}: ${error.message}`);
+    }
+  }
 }
 
 async function feishuRequest(fetchImpl, path, options = {}) {
